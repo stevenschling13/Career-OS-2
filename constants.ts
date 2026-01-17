@@ -1,5 +1,5 @@
 import { LayoutDashboard, Inbox, Trello, FileText, Settings, Sparkles } from 'lucide-react';
-import { JobStatus } from './types';
+import { JobStatus, EmailThread } from './types';
 
 export const NAV_ITEMS = [
   { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
@@ -18,7 +18,7 @@ export const KANBAN_COLUMNS = [
   { id: JobStatus.REJECTED, title: 'Rejected', color: 'bg-red-50 border-red-200' },
 ];
 
-export const MOCK_EMAILS = [
+export const MOCK_EMAILS: EmailThread[] = [
   {
     id: '1',
     sender: 'recruiting@google.com',

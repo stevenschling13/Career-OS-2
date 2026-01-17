@@ -1,7 +1,9 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { UserProfile, AuthContextType } from '../types';
-import { Mail, Calendar, Loader2, ArrowRight, AlertCircle } from 'lucide-react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { UserProfile, AuthContextType, JobPosting } from '../types';
+import { Mail, Calendar, Loader2, ArrowRight, AlertCircle, RefreshCw } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { loadDataFromDrive, saveDataToDrive } from '../services/googleApiService';
+import { MOCK_JOBS } from '../constants';
 
 declare global {
   interface Window {
@@ -9,35 +11,26 @@ declare global {
   }
 }
 
-// Extended Scopes for full Career OS functionality
 const SCOPES = [
-  // Identity
   'https://www.googleapis.com/auth/userinfo.email',
   'https://www.googleapis.com/auth/userinfo.profile',
-  
-  // Gmail
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/gmail.send',
-  
-  // Calendar: Read-only and Full access
-  'https://www.googleapis.com/auth/calendar.readonly',
   'https://www.googleapis.com/auth/calendar',
-  
-  // Tasks: For the "Execution Loop" (To-Do list integration)
-  'https://www.googleapis.com/auth/tasks',
-  
-  // Contacts: For the Networking CRM
-  'https://www.googleapis.com/auth/contacts',
-  
-  // Drive: To save generated resumes and cover letters
-  'https://www.googleapis.com/auth/drive.file'
+  'https://www.googleapis.com/auth/drive.file' // Essential for Drive Sync
 ];
 
-// Context initialized with null
-const AuthContext = createContext<AuthContextType | null>(null);
+interface ExtendedAuthContextType extends AuthContextType {
+  scriptLoaded: boolean;
+  jobs: JobPosting[];
+  setJobs: (jobs: JobPosting[]) => void;
+  isSyncing: boolean;
+  syncError: string | null;
+}
 
-// Hook to use the auth context
+const AuthContext = createContext<ExtendedAuthContextType | null>(null);
+
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
@@ -51,57 +44,108 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [tokenClient, setTokenClient] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [scriptLoaded, setScriptLoaded] = useState(false);
+  
+  // Data State
+  const [jobs, setJobsState] = useState<JobPosting[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+
   const location = useLocation();
   const navigate = useNavigate();
   
-  // Initialize Client ID from env or local storage
-  const [clientId, setClientIdState] = useState(process.env.REACT_APP_GOOGLE_CLIENT_ID || '');
+  // Initialize Client ID: Env Var -> Local Storage -> Hardcoded User ID
+  const [clientId, setClientIdState] = useState(() => {
+    return process.env.REACT_APP_GOOGLE_CLIENT_ID || 
+           localStorage.getItem('career_os_client_id') || 
+           '959574223828-bopabkdkoo951hcgsq7p3v4bt5eh3tke.apps.googleusercontent.com';
+  });
+
+  // Debounced Save to Drive
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const setClientId = (id: string) => {
     setClientIdState(id);
     localStorage.setItem('career_os_client_id', id);
   };
 
-  useEffect(() => {
-    // Restore client ID from localStorage if not in env
-    const savedClientId = localStorage.getItem('career_os_client_id');
-    if (savedClientId && !process.env.REACT_APP_GOOGLE_CLIENT_ID) {
-      setClientIdState(savedClientId);
+  // Wrapper to update jobs and trigger sync
+  const setJobs = (newJobs: JobPosting[]) => {
+    setJobsState(newJobs);
+    
+    // If we are logged in, sync to Drive
+    if (accessToken) {
+      setIsSyncing(true);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      
+      timeoutRef.current = setTimeout(async () => {
+        try {
+          await saveDataToDrive(accessToken, { jobs: newJobs });
+          setIsSyncing(false);
+        } catch (e) {
+          console.error("Sync failed", e);
+          setSyncError("Failed to save to Drive");
+          setIsSyncing(false);
+        }
+      }, 2000); // 2 second debounce
     }
-  }, []);
+  };
 
   useEffect(() => {
-    if (!clientId) return;
-
-    const initializeClient = () => {
+    const checkScript = () => {
       if (window.google && window.google.accounts) {
-        const client = window.google.accounts.oauth2.initTokenClient({
-          client_id: clientId,
-          scope: SCOPES.join(' '),
-          callback: (tokenResponse: any) => {
-            if (tokenResponse && tokenResponse.access_token) {
-              setAccessToken(tokenResponse.access_token);
-              fetchUserProfile(tokenResponse.access_token);
-            }
-          },
-        });
-        setTokenClient(client);
+        setScriptLoaded(true);
+        if (clientId) {
+          try {
+            const client = window.google.accounts.oauth2.initTokenClient({
+              client_id: clientId,
+              scope: SCOPES.join(' '),
+              callback: (tokenResponse: any) => {
+                if (tokenResponse && tokenResponse.access_token) {
+                  setAccessToken(tokenResponse.access_token);
+                  fetchUserProfile(tokenResponse.access_token);
+                  
+                  // Initial Data Load
+                  loadData(tokenResponse.access_token);
+                }
+              },
+            });
+            setTokenClient(client);
+          } catch (e) {
+            console.error("Error initializing token client:", e);
+          }
+        }
+        return true;
       }
+      return false;
     };
 
-    // Check if Google script is loaded, if not, wait for it
-    if (window.google && window.google.accounts) {
-      initializeClient();
-    } else {
-      const intervalId = setInterval(() => {
-        if (window.google && window.google.accounts) {
-          initializeClient();
-          clearInterval(intervalId);
-        }
+    if (!checkScript()) {
+      const interval = setInterval(() => {
+        if (checkScript()) clearInterval(interval);
       }, 500);
-      return () => clearInterval(intervalId);
+      return () => clearInterval(interval);
     }
   }, [clientId]);
+
+  const loadData = async (token: string) => {
+    setIsSyncing(true);
+    try {
+      const data = await loadDataFromDrive(token);
+      if (data && data.jobs) {
+        setJobsState(data.jobs);
+      } else {
+        // First time load: use empty or defaults, don't overwrite with MOCK unless user wants
+        // For this demo, we'll initialize with MOCK if drive is empty so the user sees something
+        setJobsState(MOCK_JOBS as any); 
+      }
+    } catch (e) {
+      console.error(e);
+      setSyncError("Failed to load data");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const fetchUserProfile = async (token: string) => {
     setIsLoading(true);
@@ -109,26 +153,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const response = await fetch('https://www.googleapis.com/oauth2/v1/userinfo?alt=json', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch user profile');
+      if (response.ok) {
+        const data = await response.json();
+        setUser({
+          name: data.name,
+          email: data.email,
+          picture: data.picture,
+          targetRoles: [],
+          skills: [],
+          resumeText: '',
+        });
       }
-
-      const data = await response.json();
-      
-      const profile: UserProfile = {
-        name: data.name,
-        email: data.email,
-        picture: data.picture,
-        targetRoles: [],
-        skills: [],
-        resumeText: '',
-      };
-      
-      setUser(profile);
     } catch (error) {
-      console.error('Failed to fetch user profile', error);
-      // Optional: Clear token if invalid
+      console.error(error);
       setAccessToken(null);
     } finally {
       setIsLoading(false);
@@ -136,20 +173,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const login = () => {
+    // 1. Check if Client ID exists
     if (!clientId) {
-      // If no client ID, redirect to settings or show alert
-      if (confirm('Google Client ID is missing. Go to Settings to configure it?')) {
-        navigate('/settings');
-      }
+      navigate('/settings');
       return;
     }
 
-    if (!tokenClient) {
-      alert('Google Sign-In script is loading. Please try again in a moment.');
+    // 2. Check if script loaded
+    if (!scriptLoaded || !tokenClient) {
+      alert('Security components are initializing. Please wait 2 seconds and try again.');
       return;
     }
     
-    // Trigger the popup
+    // 3. Request Token
     tokenClient.requestAccessToken();
   };
 
@@ -159,6 +195,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       window.google.accounts.oauth2.revoke(token, () => {
         setAccessToken(null);
         setUser(null);
+        setJobsState([]); // Clear data on logout
       });
     } else {
       setAccessToken(null);
@@ -166,7 +203,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const value: AuthContextType = {
+  const value: ExtendedAuthContextType = {
     user,
     accessToken,
     isLoading,
@@ -174,62 +211,81 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     logout,
     scopes: SCOPES,
     clientId,
-    setClientId
+    setClientId,
+    scriptLoaded,
+    jobs,
+    setJobs,
+    isSyncing,
+    syncError
   };
 
-  // Improved floating button visibility logic
-  const showLoginPrompt = !user && (location.pathname === '/inbox' || location.pathname === '/');
+  const showLoginPrompt = !user && (location.pathname !== '/settings');
 
   return (
     <AuthContext.Provider value={value}>
       {children}
       {showLoginPrompt && (
-        <div className="fixed bottom-8 right-8 z-50">
+        <div className="fixed bottom-8 right-8 z-50 animate-in slide-in-from-bottom-5 fade-in duration-500">
           <button 
             onClick={login}
             disabled={isLoading}
             className={`
-              group flex items-center gap-4 pl-3 pr-6 py-3 rounded-full shadow-xl border 
-              transition-all duration-300 transform hover:-translate-y-1 hover:shadow-2xl
+              group flex items-center gap-4 pl-3 pr-6 py-3 rounded-full shadow-2xl border 
+              transition-all duration-300 transform hover:-translate-y-1
               ${isLoading 
                 ? 'bg-white border-gray-200 cursor-wait' 
-                : 'bg-gray-900 border-gray-900 hover:bg-black text-white'
+                : clientId 
+                  ? 'bg-gray-900 border-gray-900 hover:bg-black text-white'
+                  : 'bg-amber-100 border-amber-300 text-amber-900 hover:bg-amber-200'
               }
             `}
           >
             <div className={`
-              w-10 h-10 rounded-full flex items-center justify-center transition-colors relative
-              ${isLoading ? 'bg-gray-50' : 'bg-gray-800 group-hover:bg-gray-700'}
+              w-10 h-10 rounded-full flex items-center justify-center transition-colors relative shadow-sm
+              ${isLoading ? 'bg-gray-50' : 'bg-white/20'}
             `}>
               {isLoading ? (
                 <Loader2 size={18} className="animate-spin text-brand-600" />
               ) : clientId ? (
-                <>
-                  <Mail size={16} className="text-white absolute top-2.5 left-2.5" />
-                  <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-0.5 border border-gray-800">
-                    <Calendar size={12} className="text-gray-900" />
-                  </div>
-                </>
+                 <div className="relative">
+                   <Mail size={16} className="text-white" />
+                   <div className="absolute -bottom-1 -right-1 bg-green-500 w-2.5 h-2.5 rounded-full border border-gray-900"></div>
+                 </div>
               ) : (
-                <AlertCircle size={20} className="text-yellow-400" />
+                <AlertCircle size={20} className="text-amber-600" />
               )}
             </div>
             
             <div className="flex flex-col items-start">
-              <span className={`text-sm font-bold ${isLoading ? 'text-gray-800' : 'text-white'}`}>
-                {isLoading ? 'Connecting...' : clientId ? 'Link Gmail & Calendar' : 'Setup Required'}
+              <span className="text-sm font-bold">
+                {isLoading ? 'Connecting...' : clientId ? 'Connect Career OS' : 'Setup Required'}
               </span>
               {!isLoading && (
-                <span className="text-[10px] font-medium text-gray-400 group-hover:text-gray-300">
-                  {clientId ? 'Enable Career OS' : 'Configure Client ID'}
+                <span className="text-[10px] font-medium opacity-80">
+                  {clientId ? 'Sync Gmail, Calendar & Drive' : 'Click to Configure API Keys'}
                 </span>
               )}
             </div>
 
-            {!isLoading && clientId && (
-              <ArrowRight size={16} className="text-gray-500 group-hover:text-white transition-colors ml-1" />
+            {!isLoading && (
+              <ArrowRight size={16} className={`transition-colors ml-1 ${clientId ? 'text-gray-400 group-hover:text-white' : 'text-amber-700'}`} />
             )}
           </button>
+        </div>
+      )}
+      
+      {/* Sync Indicator */}
+      {user && (
+        <div className="fixed bottom-4 left-64 ml-4 z-40 text-[10px] font-medium text-gray-400 flex items-center gap-2">
+          {isSyncing ? (
+            <>
+              <RefreshCw size={10} className="animate-spin" /> Syncing to Drive...
+            </>
+          ) : syncError ? (
+             <span className="text-red-500 flex items-center gap-1"><AlertCircle size={10}/> {syncError}</span>
+          ) : (
+             <span className="opacity-50">All changes saved to Drive</span>
+          )}
         </div>
       )}
     </AuthContext.Provider>

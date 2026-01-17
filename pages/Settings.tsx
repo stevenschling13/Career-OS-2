@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Shield, Key, Check, AlertTriangle, Mail, Calendar, User, CheckSquare, Users, FileText, Save, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { Shield, Key, Check, AlertTriangle, Mail, Calendar, User, CheckSquare, Users, FileText, Save, Loader2, CheckCircle, XCircle, ExternalLink, HelpCircle, Copy, Info } from 'lucide-react';
 
 const Settings: React.FC = () => {
   const { clientId, setClientId, login, logout, user, accessToken, scopes } = useAuth();
   const [tempClientId, setTempClientId] = useState(clientId);
   const [saved, setSaved] = useState(false);
   const [calendarStatus, setCalendarStatus] = useState<'idle' | 'checking' | 'success' | 'error'>('idle');
+  const [showHelp, setShowHelp] = useState(true);
+
+  // Get current origin to help user configure Console
+  const currentOrigin = window.location.origin;
 
   const handleSaveId = () => {
     setClientId(tempClientId);
@@ -34,9 +38,72 @@ const Settings: React.FC = () => {
   };
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-8 max-w-4xl mx-auto pb-20">
       <h1 className="text-2xl font-bold text-gray-900 mb-2">Agent Settings</h1>
       <p className="text-gray-500 mb-8">Configure your connection to Google Services and Gemini.</p>
+
+      {/* Deployment & Troubleshooting Help */}
+      <div className="bg-red-50 border border-red-100 rounded-xl p-5 mb-8 shadow-sm">
+         <div className="flex justify-between items-start">
+            <h3 className="font-bold text-red-900 flex items-center gap-2">
+               <AlertTriangle size={20} className="text-red-600" /> 
+               Fixing "Access Blocked" (Error 400)
+            </h3>
+            <button onClick={() => setShowHelp(!showHelp)} className="text-xs font-medium text-red-700 underline">
+               {showHelp ? 'Hide Guide' : 'Show Fix Guide'}
+            </button>
+         </div>
+         
+         {showHelp && (
+           <div className="mt-4 text-sm text-red-900 space-y-4">
+              <p className="font-medium">
+                The error message mentioning <code>storagerelay</code> is confusing, but the fix is simple. 
+                Google currently blocks this website from using your Client ID.
+              </p>
+
+              <div className="bg-white p-4 rounded-lg border border-red-200 shadow-inner">
+                 <p className="text-xs text-gray-500 mb-2 font-bold uppercase tracking-wide">Step 1: Copy Your Website URL</p>
+                 <div className="flex items-center gap-2 mb-2">
+                    <code className="bg-gray-100 px-3 py-2 rounded text-gray-800 font-mono text-sm flex-1 select-all border border-gray-300">
+                      {currentOrigin}
+                    </code>
+                    <button 
+                       onClick={() => navigator.clipboard.writeText(currentOrigin)}
+                       className="p-2 hover:bg-gray-100 rounded text-gray-600 border border-gray-200"
+                       title="Copy to clipboard"
+                    >
+                       <Copy size={16} />
+                    </button>
+                 </div>
+                 <p className="text-xs text-gray-500">
+                   This exact URL must be in your Google Cloud Console whitelist.
+                 </p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs text-gray-500 font-bold uppercase tracking-wide">Step 2: Update Google Cloud Console</p>
+                <ol className="list-decimal pl-5 space-y-2 text-gray-800">
+                   <li>
+                     Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="underline font-bold text-brand-700">Google Cloud Console &rarr; Credentials</a>.
+                   </li>
+                   <li>
+                     Click on your <strong>OAuth 2.0 Client ID</strong> (the one ending in <code>tke.apps...</code>).
+                   </li>
+                   <li>
+                     Look for <strong>"Authorized JavaScript origins"</strong>.
+                     <br/><span className="text-xs bg-yellow-100 px-1 rounded">Important: Do NOT use "Authorized redirect URIs"</span>.
+                   </li>
+                   <li>
+                     Click <strong>ADD URI</strong> and paste: <strong>{currentOrigin}</strong>
+                   </li>
+                   <li>
+                     Click <strong>SAVE</strong> and wait 1 minute.
+                   </li>
+                </ol>
+              </div>
+           </div>
+         )}
+      </div>
 
       {/* Google Auth Configuration */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8">
@@ -73,8 +140,8 @@ const Settings: React.FC = () => {
                  {saved ? 'Saved' : 'Save'}
                </button>
              </div>
-             <p className="text-xs text-gray-500 mt-2">
-               Required for Gmail and Calendar integration. Create this in <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-brand-600 hover:underline">Google Cloud Console</a>.
+             <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+               <Info size={12} /> Your ID is currently loaded. To fix connection errors, follow the guide above.
              </p>
            </div>
 

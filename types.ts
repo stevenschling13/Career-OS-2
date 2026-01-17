@@ -66,3 +66,29 @@ export interface AuthContextType {
   clientId: string;
   setClientId: (id: string) => void;
 }
+
+export interface EmailAnalysis {
+  category: 'RECRUITER' | 'APPLICATION_UPDATE' | 'NETWORKING' | 'OTHER';
+  priority: 'HIGH' | 'MEDIUM' | 'LOW';
+  summary: string;
+  suggestedAction: string;
+}
+
+export interface ResearchResult {
+  text: string;
+  grounding?: {
+    groundingChunks?: Array<{
+      web?: {
+        uri: string;
+        title: string;
+      };
+    }>;
+  };
+}
+
+export interface JobDescriptionAnalysis {
+  role: string;
+  company?: string;
+  requirements: string[];
+  responsibilities: string[];
+}
