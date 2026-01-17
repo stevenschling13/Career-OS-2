@@ -1,0 +1,5 @@
+{
+  "name": "Career OS",
+  "description": "An agentic career management system powered by Gemini 2.0 and 3.0. Features unified inbox, Kanban job tracking, and deep resume analysis.",
+  "requestFramePermissions": []
+}

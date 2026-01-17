@@ -1,0 +1,212 @@
+import React, { useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { Shield, Key, Check, AlertTriangle, Mail, Calendar, User, CheckSquare, Users, FileText, Save, Loader2, CheckCircle, XCircle } from 'lucide-react';
+
+const Settings: React.FC = () => {
+  const { clientId, setClientId, login, logout, user, accessToken, scopes } = useAuth();
+  const [tempClientId, setTempClientId] = useState(clientId);
+  const [saved, setSaved] = useState(false);
+  const [calendarStatus, setCalendarStatus] = useState<'idle' | 'checking' | 'success' | 'error'>('idle');
+
+  const handleSaveId = () => {
+    setClientId(tempClientId);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const verifyCalendar = async () => {
+    if (!accessToken) return;
+    setCalendarStatus('checking');
+    try {
+      // Simple call to list calendars to verify scope
+      const response = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=1', {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      if (response.ok) {
+        setCalendarStatus('success');
+      } else {
+        setCalendarStatus('error');
+      }
+    } catch (e) {
+      console.error(e);
+      setCalendarStatus('error');
+    }
+  };
+
+  return (
+    <div className="p-8 max-w-4xl mx-auto">
+      <h1 className="text-2xl font-bold text-gray-900 mb-2">Agent Settings</h1>
+      <p className="text-gray-500 mb-8">Configure your connection to Google Services and Gemini.</p>
+
+      {/* Google Auth Configuration */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8">
+        <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+           <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+             <Shield className="text-brand-600" size={20} />
+             Google Workspace Connection
+           </h2>
+           <div className={`px-3 py-1 rounded-full text-xs font-semibold ${user ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>
+             {user ? 'CONNECTED' : 'DISCONNECTED'}
+           </div>
+        </div>
+        
+        <div className="p-6">
+           {/* Client ID Input */}
+           <div className="mb-6">
+             <label className="block text-sm font-medium text-gray-700 mb-2">Google Client ID (Web Application)</label>
+             <div className="flex gap-2">
+               <input 
+                 type="text" 
+                 value={tempClientId}
+                 onChange={(e) => {
+                   setTempClientId(e.target.value);
+                   setSaved(false);
+                 }}
+                 className="flex-1 p-2 border border-gray-300 rounded-lg text-sm focus:ring-brand-500 focus:border-brand-500"
+                 placeholder="ex: 123456789-abc.apps.googleusercontent.com"
+               />
+               <button 
+                 onClick={handleSaveId}
+                 className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${saved ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-gray-900 hover:bg-gray-800 text-white'}`}
+               >
+                 {saved ? <Check size={16} /> : <Save size={16} />}
+                 {saved ? 'Saved' : 'Save'}
+               </button>
+             </div>
+             <p className="text-xs text-gray-500 mt-2">
+               Required for Gmail and Calendar integration. Create this in <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-brand-600 hover:underline">Google Cloud Console</a>.
+             </p>
+           </div>
+
+           {/* Connection Status & Calendar Check */}
+           {user && (
+             <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+               <div className="flex justify-between items-center mb-4">
+                  <div className="flex items-center gap-3">
+                     <img src={user.picture} alt="" className="w-10 h-10 rounded-full" />
+                     <div>
+                        <p className="font-medium text-gray-900">{user.name}</p>
+                        <p className="text-sm text-gray-500">{user.email}</p>
+                     </div>
+                  </div>
+                  <button onClick={logout} className="text-sm text-red-600 hover:underline">Revoke Access</button>
+               </div>
+               
+               <div className="border-t border-gray-200 pt-4">
+                  <h4 className="text-sm font-semibold text-gray-900 mb-2">Integration Checks</h4>
+                  <div className="flex items-center justify-between bg-white p-3 rounded border border-gray-200">
+                    <div className="flex items-center gap-2">
+                      <Calendar size={16} className="text-brand-600" />
+                      <span className="text-sm text-gray-700">Calendar Write Access</span>
+                    </div>
+                    {calendarStatus === 'idle' && (
+                      <button onClick={verifyCalendar} className="text-xs bg-brand-50 text-brand-700 px-2 py-1 rounded border border-brand-200 hover:bg-brand-100">
+                        Verify Link
+                      </button>
+                    )}
+                    {calendarStatus === 'checking' && (
+                      <span className="flex items-center gap-1 text-xs text-gray-500"><Loader2 size={12} className="animate-spin" /> Checking...</span>
+                    )}
+                    {calendarStatus === 'success' && (
+                      <span className="flex items-center gap-1 text-xs text-green-600 font-medium"><CheckCircle size={12} /> Active</span>
+                    )}
+                    {calendarStatus === 'error' && (
+                      <span className="flex items-center gap-1 text-xs text-red-600 font-medium"><XCircle size={12} /> Failed</span>
+                    )}
+                  </div>
+               </div>
+             </div>
+           )}
+
+           {/* Scopes Information */}
+           <div className="bg-blue-50 rounded-lg p-5 border border-blue-100 mb-6">
+              <h3 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+                <Key size={16} /> Permissions Requested
+              </h3>
+              <p className="text-sm text-blue-800 mb-4">
+                To function as your Career OS, the agent requires the following read/write permissions. 
+                Tokens are stored in memory and reset upon refresh.
+              </p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <ScopeItem 
+                  icon={User}
+                  title="Identity" 
+                  scope="userinfo.profile" 
+                  description="Personalize dashboard." 
+                />
+                <ScopeItem 
+                  icon={Mail}
+                  title="Read Emails" 
+                  scope="gmail.readonly" 
+                  description="View your messages." 
+                />
+                <ScopeItem 
+                  icon={Mail}
+                  title="Manage Emails" 
+                  scope="gmail.modify" 
+                  description="Read, label, and organize recruiter threads." 
+                />
+                <ScopeItem 
+                  icon={Mail}
+                  title="Send Emails" 
+                  scope="gmail.send" 
+                  description="Draft and send replies." 
+                />
+                <ScopeItem 
+                  icon={Calendar}
+                  title="Manage Calendar" 
+                  scope="calendar" 
+                  description="Full access to schedule interviews." 
+                />
+                <ScopeItem 
+                  icon={CheckSquare}
+                  title="Google Tasks" 
+                  scope="tasks" 
+                  description="Manage follow-ups and to-do lists." 
+                />
+                 <ScopeItem 
+                  icon={Users}
+                  title="Contacts" 
+                  scope="contacts" 
+                  description="Manage your professional network." 
+                />
+                 <ScopeItem 
+                  icon={FileText}
+                  title="Drive Files" 
+                  scope="drive.file" 
+                  description="Save generated resumes and cover letters." 
+                />
+              </div>
+           </div>
+
+           {/* Connect Button */}
+           {!user && (
+             <button
+               onClick={login}
+               disabled={!clientId}
+               className="w-full bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white py-3 rounded-lg font-medium shadow-sm transition-all flex justify-center items-center gap-2"
+             >
+               {clientId ? 'Connect Google Account' : 'Enter Client ID to Connect'}
+             </button>
+           )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ScopeItem: React.FC<{icon: any, title: string, scope: string, description: string}> = ({ icon: Icon, title, scope, description }) => (
+  <div className="flex items-start gap-3 bg-white p-3 rounded border border-blue-100">
+    <div className="mt-0.5 text-blue-500"><Icon size={16} /></div>
+    <div>
+      <div className="flex items-center gap-2">
+         <span className="font-medium text-gray-900 text-sm">{title}</span>
+         <code className="text-[10px] bg-gray-100 px-1 py-0.5 rounded text-gray-500">{scope}</code>
+      </div>
+      <p className="text-xs text-gray-600 mt-0.5">{description}</p>
+    </div>
+  </div>
+);
+
+export default Settings;
