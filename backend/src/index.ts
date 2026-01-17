@@ -3,7 +3,6 @@ import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import { google } from 'googleapis';
-// import { PrismaClient } from '@prisma/client';
 import { encrypt, decrypt } from './utils/crypto';
 import dotenv from 'dotenv';
 import process from 'node:process';
@@ -11,8 +10,10 @@ import crypto from 'node:crypto';
 
 dotenv.config();
 
-// Initialize In-Memory Store (Replacing Prisma for this environment)
-// const prisma = new PrismaClient();
+const app = Fastify({ logger: true });
+
+// --- Mock Database (In-Memory) ---
+// Replacing Prisma to ensure code runs without DB generation steps
 interface GoogleAccount {
   sub: string;
   email: string;
@@ -20,14 +21,10 @@ interface GoogleAccount {
   refreshToken?: string;
   expiryDate?: bigint;
   scope: string;
-  lastSyncedAt: Date;
+  lastSyncedAt?: Date;
 }
 
-const db = {
-  googleAccounts: new Map<string, GoogleAccount>()
-};
-
-const app = Fastify({ logger: true });
+const db = new Map<string, GoogleAccount>();
 
 // --- Types & Schema Validation ---
 app.setValidatorCompiler(validatorCompiler);
@@ -61,10 +58,13 @@ const oauth2Client = new google.auth.OAuth2(
 );
 
 const SCOPES = [
-  'https://www.googleapis.com/auth/userinfo.profile',
   'https://www.googleapis.com/auth/userinfo.email',
-  'https://www.googleapis.com/auth/calendar.readonly',
-  'https://www.googleapis.com/auth/gmail.readonly'
+  'https://www.googleapis.com/auth/userinfo.profile',
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/drive.file'
 ];
 
 // --- Helpers ---
@@ -74,8 +74,7 @@ const SCOPES = [
  * Handles token decryption and automatic refreshing if supported.
  */
 async function getAuthenticatedClient(sub: string) {
-  // const account = await prisma.googleAccount.findUnique({ where: { sub } });
-  const account = db.googleAccounts.get(sub);
+  const account = db.get(sub);
   if (!account) return null;
 
   const client = new google.auth.OAuth2(
@@ -94,24 +93,19 @@ async function getAuthenticatedClient(sub: string) {
   // Handle refresh if needed (middleware-like behavior)
   client.on('tokens', async (tokens) => {
     if (tokens.access_token) {
-      /*
-      await prisma.googleAccount.update({
-        where: { sub },
-        data: {
+      const existing = db.get(sub);
+      if (existing) {
+        const updated: GoogleAccount = {
+          ...existing,
           accessToken: encrypt(tokens.access_token),
-          expiryDate: tokens.expiry_date ? BigInt(tokens.expiry_date) : undefined,
-          ...(tokens.refresh_token ? { refreshToken: encrypt(tokens.refresh_token) } : {})
+          expiryDate: tokens.expiry_date ? BigInt(tokens.expiry_date) : existing.expiryDate,
+        };
+        
+        if (tokens.refresh_token) {
+          updated.refreshToken = encrypt(tokens.refresh_token);
         }
-      });
-      */
-      const current = db.googleAccounts.get(sub);
-      if (current) {
-        db.googleAccounts.set(sub, {
-            ...current,
-            accessToken: encrypt(tokens.access_token),
-            expiryDate: tokens.expiry_date ? BigInt(tokens.expiry_date) : undefined,
-            ...(tokens.refresh_token ? { refreshToken: encrypt(tokens.refresh_token) } : {})
-        });
+
+        db.set(sub, updated);
       }
     }
   });
@@ -166,50 +160,21 @@ app.get('/auth/google/callback', async (req, reply) => {
       throw new Error('Failed to retrieve user info');
     }
 
-    // Encrypt and Store in SQLite via Prisma (Replaced with In-Memory)
-    /*
-    await prisma.googleAccount.upsert({
-      where: { sub: userInfo.data.id },
-      update: {
-        accessToken: encrypt(tokens.access_token!),
-        refreshToken: tokens.refresh_token ? encrypt(tokens.refresh_token) : undefined,
-        expiryDate: tokens.expiry_date ? BigInt(tokens.expiry_date) : undefined,
-        email: userInfo.data.email,
-        scope: tokens.scope || '',
-        lastSyncedAt: new Date()
-      },
-      create: {
-        sub: userInfo.data.id,
-        email: userInfo.data.email,
-        accessToken: encrypt(tokens.access_token!),
-        refreshToken: tokens.refresh_token ? encrypt(tokens.refresh_token) : undefined,
-        expiryDate: tokens.expiry_date ? BigInt(tokens.expiry_date) : undefined,
-        scope: tokens.scope || ''
-      }
-    });
-    */
+    // Encrypt and Store in Memory
+    const sub = userInfo.data.id;
+    const existing = db.get(sub);
     
     const accountData: GoogleAccount = {
-        sub: userInfo.data.id,
-        email: userInfo.data.email,
-        accessToken: encrypt(tokens.access_token!),
-        refreshToken: tokens.refresh_token ? encrypt(tokens.refresh_token) : undefined,
-        expiryDate: tokens.expiry_date ? BigInt(tokens.expiry_date) : undefined,
-        scope: tokens.scope || '',
-        lastSyncedAt: new Date()
+      sub,
+      email: userInfo.data.email,
+      accessToken: encrypt(tokens.access_token!),
+      refreshToken: tokens.refresh_token ? encrypt(tokens.refresh_token) : (existing?.refreshToken),
+      expiryDate: tokens.expiry_date ? BigInt(tokens.expiry_date) : (existing?.expiryDate),
+      scope: tokens.scope || existing?.scope || '',
+      lastSyncedAt: new Date()
     };
-    
-    // Check if exists to preserve refreshToken if new one is not provided? 
-    // Usually tokens.refresh_token is only provided if prompt=consent. We used prompt=consent.
-    const existing = db.googleAccounts.get(userInfo.data.id);
-    if (existing) {
-        if (!tokens.refresh_token && existing.refreshToken) {
-            accountData.refreshToken = existing.refreshToken;
-        }
-    }
-    
-    db.googleAccounts.set(userInfo.data.id, accountData);
 
+    db.set(sub, accountData);
 
     // Create a simple session cookie
     reply.setCookie('career_os_session', userInfo.data.id, {
@@ -224,7 +189,8 @@ app.get('/auth/google/callback', async (req, reply) => {
     // Clear state cookie
     reply.clearCookie('oauth_state');
 
-    return reply.redirect(`${CONFIG.frontendUrl}/settings`);
+    // Redirect to frontend (HashRouter)
+    return reply.redirect(`${CONFIG.frontendUrl}/#/settings`);
 
   } catch (error) {
     req.log.error(error);
@@ -246,11 +212,7 @@ app.get('/api/google/status', async (req, reply) => {
     return { connected: false };
   }
 
-  // const account = await prisma.googleAccount.findUnique({ 
-  //   where: { sub },
-  //   select: { email: true, lastSyncedAt: true }
-  // });
-  const account = db.googleAccounts.get(sub);
+  const account = db.get(sub);
 
   if (!account) {
     return { connected: false };
@@ -285,6 +247,24 @@ app.get('/api/google/calendar/upcoming', async (req, reply) => {
   } catch (error) {
     req.log.error(error);
     return reply.status(500).send({ error: 'Failed to fetch calendar events' });
+  }
+});
+
+// 6. API: Gmail Profile
+app.get('/api/google/gmail/profile', async (req, reply) => {
+  const sub = req.cookies.career_os_session ? req.unsignCookie(req.cookies.career_os_session).value : null;
+  if (!sub) return reply.status(401).send({ error: 'Unauthorized' });
+
+  const auth = await getAuthenticatedClient(sub);
+  if (!auth) return reply.status(401).send({ error: 'Session expired' });
+
+  try {
+    const gmail = google.gmail({ version: 'v1', auth });
+    const response = await gmail.users.getProfile({ userId: 'me' });
+    return response.data;
+  } catch (error) {
+    req.log.error(error);
+    return reply.status(500).send({ error: 'Failed to fetch Gmail profile' });
   }
 });
 
