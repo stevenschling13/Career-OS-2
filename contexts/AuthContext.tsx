@@ -54,11 +54,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const location = useLocation();
   const navigate = useNavigate();
   
-  // Initialize Client ID: Env Var -> Local Storage -> Hardcoded User ID
+  // Initialize Client ID: Env Var -> Local Storage
   const [clientId, setClientIdState] = useState(() => {
     return process.env.REACT_APP_GOOGLE_CLIENT_ID || 
            localStorage.getItem('career_os_client_id') || 
-           '959574223828-bopabkdkoo951hcgsq7p3v4bt5eh3tke.apps.googleusercontent.com';
+           '';
   });
 
   // Debounced Save to Drive

@@ -90,7 +90,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Mock implementation for interface compatibility
-  const clientId = "managed-by-backend";
+  const clientId = '';
   const setClientId = () => {};
   const scopes: string[] = [];
 

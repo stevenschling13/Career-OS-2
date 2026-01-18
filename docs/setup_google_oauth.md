@@ -27,6 +27,7 @@ To enable Google Workspace integration (Gmail, Calendar), you must set up a Goog
         *   `http://localhost:5173` (Frontend)
     *   **Authorized redirect URIs:**
         *   `http://localhost:8787/auth/google/callback` (Backend)
+    *   **Verify** your redirect URIs include `http://localhost:8787/auth/google/callback` (or your deployed backend URL).
     *   Click **Create**.
     *   **COPY** the `Client ID` and `Client Secret`.
 
@@ -40,6 +41,7 @@ To enable Google Workspace integration (Gmail, Calendar), you must set up a Goog
 GOOGLE_CLIENT_ID=your_pasted_client_id
 GOOGLE_CLIENT_SECRET=your_pasted_client_secret
 GOOGLE_REDIRECT_URI=http://localhost:8787/auth/google/callback
+FRONTEND_URL=http://localhost:5173
 
 # Generate secure keys (run these in terminal node REPL):
 # node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"

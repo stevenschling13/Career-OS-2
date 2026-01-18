@@ -15,6 +15,9 @@ View your app in AI Studio: https://ai.studio/apps/drive/1laNVezCoTz3wguULn522Pn
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. Configure backend OAuth credentials:
+   * Copy `backend/.env.example` to `backend/.env`.
+   * Fill in `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `FRONTEND_URL`, and `COOKIE_SECRET` as described in `docs/setup_google_oauth.md`.
+3. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+4. Run the app:
    `npm run dev`
