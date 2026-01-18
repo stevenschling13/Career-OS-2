@@ -303,8 +303,8 @@ app.get('/api/google/gmail/threads', async (req, reply) => {
         if (!latestMsg || !latestMsg.payload?.headers) return null;
 
         const headers = latestMsg.payload.headers;
-        const subject = headers.find((h) => h.name === 'Subject')?.value || '(No Subject)';
-        const from = headers.find((h) => h.name === 'From')?.value || 'Unknown';
+        const subject = headers.find((h) => h.name?.toLowerCase() === 'subject')?.value || '(No Subject)';
+        const from = headers.find((h) => h.name?.toLowerCase() === 'from')?.value || 'Unknown';
 
         return {
           id: thread.id,
