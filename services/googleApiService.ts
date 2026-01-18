@@ -1,48 +1,24 @@
 import { EmailThread, JobPosting } from "../types";
 
-const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3/files';
 
 /**
  * Fetches recent threads from the user's inbox.
  */
-export const fetchGmailThreads = async (accessToken: string, maxResults = 15): Promise<EmailThread[]> => {
+export const fetchGmailThreads = async (maxResults = 15): Promise<EmailThread[]> => {
   try {
-    // 1. List threads
-    const listResponse = await fetch(`${GMAIL_API_BASE}/threads?maxResults=${maxResults}&q=in:inbox`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+    const response = await fetch(`/api/google/gmail/threads?maxResults=${maxResults}`, {
+      credentials: 'include',
     });
-    const listData = await listResponse.json();
-    
-    if (!listData.threads) return [];
 
-    // 2. Fetch details for each thread (in parallel)
-    const detailedThreads = await Promise.all(
-      listData.threads.map(async (thread: any) => {
-        const detailResponse = await fetch(`${GMAIL_API_BASE}/threads/${thread.id}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        const detail = await detailResponse.json();
-        const latestMsg = detail.messages[detail.messages.length - 1];
-        
-        const headers = latestMsg.payload.headers;
-        const subject = headers.find((h: any) => h.name === 'Subject')?.value || '(No Subject)';
-        const from = headers.find((h: any) => h.name === 'From')?.value || 'Unknown';
-        
-        return {
-          id: thread.id,
-          sender: from,
-          subject: subject,
-          snippet: latestMsg.snippet,
-          date: new Date(parseInt(latestMsg.internalDate)).toISOString(),
-          isRead: !latestMsg.labelIds.includes('UNREAD'),
-          category: 'OTHER', // Default, will be updated by AI later
-          priority: 'MEDIUM'
-        } as EmailThread;
-      })
-    );
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const message = errorData?.error || 'Failed to fetch Gmail threads';
+      throw new Error(message);
+    }
 
-    return detailedThreads;
+    const data = await response.json();
+    return data.threads ?? [];
   } catch (error) {
     console.error('Error fetching Gmail threads:', error);
     throw error;

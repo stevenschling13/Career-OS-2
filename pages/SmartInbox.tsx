@@ -32,7 +32,7 @@ const SmartInbox: React.FC = () => {
     setLoadingEmails(true);
     setError(null);
     try {
-      const threads = await fetchGmailThreads(accessToken);
+      const threads = await fetchGmailThreads();
       setEmails(threads);
     } catch (e) {
       console.error(e);
