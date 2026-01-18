@@ -32,6 +32,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [tokenClient, setTokenClient] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [scriptLoaded, setScriptLoaded] = useState(false);
+  
+  // Data State
+  const [jobs, setJobsState] = useState<JobPosting[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+
+  const location = useLocation();
+  const navigate = useNavigate();
+  
+  // Initialize Client ID: Env Var -> Local Storage
+  const [clientId, setClientIdState] = useState(() => {
+    return process.env.REACT_APP_GOOGLE_CLIENT_ID || 
+           localStorage.getItem('career_os_client_id') || 
+           '';
+  });
+
+  // Debounced Save to Drive
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const setClientId = (id: string) => {
+    setClientIdState(id);
+    localStorage.setItem('career_os_client_id', id);
+  };
+
+  // Wrapper to update jobs and trigger sync
+  const setJobs = (newJobs: JobPosting[]) => {
+    setJobsState(newJobs);
+    
+    // If we are logged in, sync to Drive
+    if (accessToken) {
+      setIsSyncing(true);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      
+      timeoutRef.current = setTimeout(async () => {
+        try {
+          await saveDataToDrive(accessToken, { jobs: newJobs });
+          setIsSyncing(false);
+        } catch (e) {
+          console.error("Sync failed", e);
+          setSyncError("Failed to save to Drive");
+          setIsSyncing(false);
+        }
+      }, 2000); // 2 second debounce
+    }
+  };
 
   const [jobs, setJobs] = useState<JobPosting[]>(MOCK_JOBS as any);
   const [isSyncing] = useState(false);

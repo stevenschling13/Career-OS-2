@@ -1,1 +1,18 @@
-���Ȭʋ�
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model GoogleAccount {
+  sub          String   @id
+  email        String   @unique
+  accessToken  String
+  refreshToken String?
+  expiryDate   BigInt?
+  scope        String
+  lastSyncedAt DateTime?
+}

@@ -12,6 +12,14 @@ dotenv.config();
 
 const app = Fastify({ logger: true });
 
+const requireEnv = (name: string) => {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+};
+
 // --- Mock Database (In-Memory) ---
 // Replacing Prisma to ensure code runs without DB generation steps
 interface GoogleAccount {
@@ -32,11 +40,11 @@ app.setSerializerCompiler(serializerCompiler);
 
 // --- Configuration ---
 const CONFIG = {
-  clientId: process.env.GOOGLE_CLIENT_ID!,
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-  redirectUri: process.env.GOOGLE_REDIRECT_URI!,
-  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
-  cookieSecret: process.env.COOKIE_SECRET || 'fallback-secret-for-dev-only-change-me',
+  clientId: requireEnv('GOOGLE_CLIENT_ID'),
+  clientSecret: requireEnv('GOOGLE_CLIENT_SECRET'),
+  redirectUri: requireEnv('GOOGLE_REDIRECT_URI'),
+  frontendUrl: requireEnv('FRONTEND_URL'),
+  cookieSecret: requireEnv('COOKIE_SECRET'),
 };
 
 // --- Plugins ---
