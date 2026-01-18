@@ -276,6 +276,64 @@ app.get('/api/google/gmail/profile', async (req, reply) => {
   }
 });
 
+// 7. API: Gmail Threads
+app.get('/api/google/gmail/threads', async (req, reply) => {
+  const sub = req.cookies.career_os_session ? req.unsignCookie(req.cookies.career_os_session).value : null;
+  if (!sub) return reply.status(401).send({ error: 'Unauthorized' });
+
+  const auth = await getAuthenticatedClient(sub);
+  if (!auth) return reply.status(401).send({ error: 'Session expired' });
+
+  const maxResultsParam = (req.query as { maxResults?: string }).maxResults;
+  const maxResults = Number.isFinite(Number(maxResultsParam)) ? Number(maxResultsParam) : 15;
+
+  try {
+    const gmail = google.gmail({ version: 'v1', auth });
+    const listResponse = await gmail.users.threads.list({
+      userId: 'me',
+      maxResults,
+      q: 'in:inbox',
+    });
+
+    const threads = listResponse.data.threads ?? [];
+    const detailedThreads = await Promise.all(
+      threads.map(async (thread) => {
+        if (!thread.id) return null;
+
+        const detailResponse = await gmail.users.threads.get({
+          userId: 'me',
+          id: thread.id,
+        });
+
+        const messages = detailResponse.data.messages ?? [];
+        const latestMsg = messages[messages.length - 1];
+
+        if (!latestMsg || !latestMsg.payload?.headers) return null;
+
+        const headers = latestMsg.payload.headers;
+        const subject = headers.find((h) => h.name?.toLowerCase() === 'subject')?.value || '(No Subject)';
+        const from = headers.find((h) => h.name?.toLowerCase() === 'from')?.value || 'Unknown';
+
+        return {
+          id: thread.id,
+          sender: from,
+          subject,
+          snippet: latestMsg.snippet ?? '',
+          date: new Date(Number(latestMsg.internalDate)).toISOString(),
+          isRead: !(latestMsg.labelIds ?? []).includes('UNREAD'),
+          category: 'OTHER',
+          priority: 'MEDIUM',
+        };
+      })
+    );
+
+    return { threads: detailedThreads.filter(Boolean) };
+  } catch (error) {
+    req.log.error(error);
+    return reply.status(500).send({ error: 'Failed to fetch Gmail threads' });
+  }
+});
+
 // Start Server
 const start = async () => {
   try {
