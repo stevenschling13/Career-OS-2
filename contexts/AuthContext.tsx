@@ -1,32 +1,21 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { UserProfile, AuthContextType, JobPosting } from '../types';
-import { Mail, Calendar, Loader2, ArrowRight, AlertCircle, RefreshCw } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { loadDataFromDrive, saveDataToDrive } from '../services/googleApiService';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { UserProfile, JobPosting } from '../types';
 import { MOCK_JOBS } from '../constants';
 
-declare global {
-  interface Window {
-    google: any;
-  }
-}
-
-const SCOPES = [
-  'https://www.googleapis.com/auth/userinfo.email',
-  'https://www.googleapis.com/auth/userinfo.profile',
-  'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.modify',
-  'https://www.googleapis.com/auth/gmail.send',
-  'https://www.googleapis.com/auth/calendar',
-  'https://www.googleapis.com/auth/drive.file' // Essential for Drive Sync
-];
-
-interface ExtendedAuthContextType extends AuthContextType {
-  scriptLoaded: boolean;
+export interface ExtendedAuthContextType {
+  user: UserProfile | null;
+  accessToken: string | null;
+  isLoading: boolean;
+  login: () => void;
+  logout: () => void;
+  scopes: string[];
+  clientId: string;
+  setClientId: (id: string) => void;
+  isConnected: boolean;
+  refreshStatus: () => Promise<void>;
   jobs: JobPosting[];
   setJobs: (jobs: JobPosting[]) => void;
   isSyncing: boolean;
-  syncError: string | null;
 }
 
 const AuthContext = createContext<ExtendedAuthContextType | null>(null);
@@ -41,6 +30,8 @@ export const useAuth = () => {
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [tokenClient, setTokenClient] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -91,203 +82,76 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  useEffect(() => {
-    const checkScript = () => {
-      if (window.google && window.google.accounts) {
-        setScriptLoaded(true);
-        if (clientId) {
-          try {
-            const client = window.google.accounts.oauth2.initTokenClient({
-              client_id: clientId,
-              scope: SCOPES.join(' '),
-              callback: (tokenResponse: any) => {
-                if (tokenResponse && tokenResponse.access_token) {
-                  setAccessToken(tokenResponse.access_token);
-                  fetchUserProfile(tokenResponse.access_token);
-                  
-                  // Initial Data Load
-                  loadData(tokenResponse.access_token);
-                }
-              },
-            });
-            setTokenClient(client);
-          } catch (e) {
-            console.error("Error initializing token client:", e);
-          }
-        }
-        return true;
-      }
-      return false;
-    };
+  const [jobs, setJobs] = useState<JobPosting[]>(MOCK_JOBS as any);
+  const [isSyncing] = useState(false);
 
-    if (!checkScript()) {
-      const interval = setInterval(() => {
-        if (checkScript()) clearInterval(interval);
-      }, 500);
-      return () => clearInterval(interval);
-    }
-  }, [clientId]);
-
-  const loadData = async (token: string) => {
-    setIsSyncing(true);
+  const fetchStatus = async () => {
     try {
-      const data = await loadDataFromDrive(token);
-      if (data && data.jobs) {
-        setJobsState(data.jobs);
-      } else {
-        // First time load: use empty or defaults, don't overwrite with MOCK unless user wants
-        // For this demo, we'll initialize with MOCK if drive is empty so the user sees something
-        setJobsState(MOCK_JOBS as any); 
+      const res = await fetch('/api/google/status');
+      if (res.ok) {
+        const data = await res.json();
+        setIsConnected(Boolean(data.connected));
+        if (data.connected && data.email) {
+          setUser({
+            name: 'User',
+            email: data.email,
+            targetRoles: [],
+            skills: [],
+            resumeText: ''
+          });
+        } else {
+          setUser(null);
+        }
       }
     } catch (e) {
-      console.error(e);
-      setSyncError("Failed to load data");
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const fetchUserProfile = async (token: string) => {
-    setIsLoading(true);
-    try {
-      const response = await fetch('https://www.googleapis.com/oauth2/v1/userinfo?alt=json', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setUser({
-          name: data.name,
-          email: data.email,
-          picture: data.picture,
-          targetRoles: [],
-          skills: [],
-          resumeText: '',
-        });
-      }
-    } catch (error) {
-      console.error(error);
-      setAccessToken(null);
+      console.error('Failed to check auth status', e);
+      setIsConnected(false);
     } finally {
       setIsLoading(false);
     }
   };
 
+  useEffect(() => {
+    fetchStatus();
+  }, []);
+
   const login = () => {
-    // 1. Check if Client ID exists
-    if (!clientId) {
-      navigate('/settings');
-      return;
-    }
-
-    // 2. Check if script loaded
-    if (!scriptLoaded || !tokenClient) {
-      alert('Security components are initializing. Please wait 2 seconds and try again.');
-      return;
-    }
-    
-    // 3. Request Token
-    tokenClient.requestAccessToken();
+    window.location.href = '/auth/google/start';
   };
 
-  const logout = () => {
-    const token = accessToken;
-    if (token && window.google && window.google.accounts) {
-      window.google.accounts.oauth2.revoke(token, () => {
-        setAccessToken(null);
-        setUser(null);
-        setJobsState([]); // Clear data on logout
-      });
-    } else {
-      setAccessToken(null);
+  const logout = async () => {
+    try {
+      await fetch('/auth/google/disconnect', { method: 'POST' });
+      setIsConnected(false);
       setUser(null);
+    } catch (e) {
+      console.error('Logout failed', e);
     }
   };
+
+  const clientId = 'managed-by-backend';
+  const setClientId = () => {};
+  const scopes: string[] = [];
 
   const value: ExtendedAuthContextType = {
     user,
-    accessToken,
+    accessToken: isConnected ? 'backend-managed' : null,
     isLoading,
     login,
     logout,
-    scopes: SCOPES,
+    scopes,
     clientId,
     setClientId,
-    scriptLoaded,
+    isConnected,
+    refreshStatus: fetchStatus,
     jobs,
     setJobs,
-    isSyncing,
-    syncError
+    isSyncing
   };
-
-  const showLoginPrompt = !user && (location.pathname !== '/settings');
 
   return (
     <AuthContext.Provider value={value}>
       {children}
-      {showLoginPrompt && (
-        <div className="fixed bottom-8 right-8 z-50 animate-in slide-in-from-bottom-5 fade-in duration-500">
-          <button 
-            onClick={login}
-            disabled={isLoading}
-            className={`
-              group flex items-center gap-4 pl-3 pr-6 py-3 rounded-full shadow-2xl border 
-              transition-all duration-300 transform hover:-translate-y-1
-              ${isLoading 
-                ? 'bg-white border-gray-200 cursor-wait' 
-                : clientId 
-                  ? 'bg-gray-900 border-gray-900 hover:bg-black text-white'
-                  : 'bg-amber-100 border-amber-300 text-amber-900 hover:bg-amber-200'
-              }
-            `}
-          >
-            <div className={`
-              w-10 h-10 rounded-full flex items-center justify-center transition-colors relative shadow-sm
-              ${isLoading ? 'bg-gray-50' : 'bg-white/20'}
-            `}>
-              {isLoading ? (
-                <Loader2 size={18} className="animate-spin text-brand-600" />
-              ) : clientId ? (
-                 <div className="relative">
-                   <Mail size={16} className="text-white" />
-                   <div className="absolute -bottom-1 -right-1 bg-green-500 w-2.5 h-2.5 rounded-full border border-gray-900"></div>
-                 </div>
-              ) : (
-                <AlertCircle size={20} className="text-amber-600" />
-              )}
-            </div>
-            
-            <div className="flex flex-col items-start">
-              <span className="text-sm font-bold">
-                {isLoading ? 'Connecting...' : clientId ? 'Connect Career OS' : 'Setup Required'}
-              </span>
-              {!isLoading && (
-                <span className="text-[10px] font-medium opacity-80">
-                  {clientId ? 'Sync Gmail, Calendar & Drive' : 'Click to Configure API Keys'}
-                </span>
-              )}
-            </div>
-
-            {!isLoading && (
-              <ArrowRight size={16} className={`transition-colors ml-1 ${clientId ? 'text-gray-400 group-hover:text-white' : 'text-amber-700'}`} />
-            )}
-          </button>
-        </div>
-      )}
-      
-      {/* Sync Indicator */}
-      {user && (
-        <div className="fixed bottom-4 left-64 ml-4 z-40 text-[10px] font-medium text-gray-400 flex items-center gap-2">
-          {isSyncing ? (
-            <>
-              <RefreshCw size={10} className="animate-spin" /> Syncing to Drive...
-            </>
-          ) : syncError ? (
-             <span className="text-red-500 flex items-center gap-1"><AlertCircle size={10}/> {syncError}</span>
-          ) : (
-             <span className="opacity-50">All changes saved to Drive</span>
-          )}
-        </div>
-      )}
     </AuthContext.Provider>
   );
 };
