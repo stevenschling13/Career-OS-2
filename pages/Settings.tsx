@@ -7,6 +7,7 @@ const Settings: React.FC = () => {
   const [tempClientId, setTempClientId] = useState(clientId);
   const [saved, setSaved] = useState(false);
   const [calendarStatus, setCalendarStatus] = useState<'idle' | 'checking' | 'success' | 'error'>('idle');
+  const [gmailStatus, setGmailStatus] = useState<'idle' | 'checking' | 'success' | 'error'>('idle');
   const [showHelp, setShowHelp] = useState(true);
 
   // Get current origin to help user configure Console
@@ -35,6 +36,29 @@ const Settings: React.FC = () => {
       console.error(e);
       setCalendarStatus('error');
     }
+  };
+
+  const verifyGmail = async () => {
+    if (!accessToken) return;
+    setGmailStatus('checking');
+    try {
+      const response = await fetch('https://www.googleapis.com/gmail/v1/users/me/profile', {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      if (response.ok) {
+        setGmailStatus('success');
+      } else {
+        setGmailStatus('error');
+      }
+    } catch (e) {
+      console.error(e);
+      setGmailStatus('error');
+    }
+  };
+
+  const verifyConnections = async () => {
+    if (!accessToken) return;
+    await Promise.all([verifyCalendar(), verifyGmail()]);
   };
 
   return (
@@ -87,7 +111,7 @@ const Settings: React.FC = () => {
                      Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="underline font-bold text-brand-700">Google Cloud Console &rarr; Credentials</a>.
                    </li>
                    <li>
-                     Click on your <strong>OAuth 2.0 Client ID</strong> (the one ending in <code>tke.apps...</code>).
+                     Click on your <strong>OAuth 2.0 Client ID</strong> (the one ending in <code>.apps.googleusercontent.com</code>).
                    </li>
                    <li>
                      Look for <strong>"Authorized JavaScript origins"</strong>.
@@ -160,26 +184,56 @@ const Settings: React.FC = () => {
                </div>
                
                <div className="border-t border-gray-200 pt-4">
-                  <h4 className="text-sm font-semibold text-gray-900 mb-2">Integration Checks</h4>
-                  <div className="flex items-center justify-between bg-white p-3 rounded border border-gray-200">
-                    <div className="flex items-center gap-2">
-                      <Calendar size={16} className="text-brand-600" />
-                      <span className="text-sm text-gray-700">Calendar Write Access</span>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-semibold text-gray-900">Integration Checks</h4>
+                    <button
+                      onClick={verifyConnections}
+                      className="text-xs bg-brand-50 text-brand-700 px-2 py-1 rounded border border-brand-200 hover:bg-brand-100"
+                    >
+                      Run Connection Check
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between bg-white p-3 rounded border border-gray-200">
+                      <div className="flex items-center gap-2">
+                        <Calendar size={16} className="text-brand-600" />
+                        <span className="text-sm text-gray-700">Google Calendar Access</span>
+                      </div>
+                      {calendarStatus === 'idle' && (
+                        <button onClick={verifyCalendar} className="text-xs bg-brand-50 text-brand-700 px-2 py-1 rounded border border-brand-200 hover:bg-brand-100">
+                          Verify
+                        </button>
+                      )}
+                      {calendarStatus === 'checking' && (
+                        <span className="flex items-center gap-1 text-xs text-gray-500"><Loader2 size={12} className="animate-spin" /> Checking...</span>
+                      )}
+                      {calendarStatus === 'success' && (
+                        <span className="flex items-center gap-1 text-xs text-green-600 font-medium"><CheckCircle size={12} /> Active</span>
+                      )}
+                      {calendarStatus === 'error' && (
+                        <span className="flex items-center gap-1 text-xs text-red-600 font-medium"><XCircle size={12} /> Failed</span>
+                      )}
                     </div>
-                    {calendarStatus === 'idle' && (
-                      <button onClick={verifyCalendar} className="text-xs bg-brand-50 text-brand-700 px-2 py-1 rounded border border-brand-200 hover:bg-brand-100">
-                        Verify Link
-                      </button>
-                    )}
-                    {calendarStatus === 'checking' && (
-                      <span className="flex items-center gap-1 text-xs text-gray-500"><Loader2 size={12} className="animate-spin" /> Checking...</span>
-                    )}
-                    {calendarStatus === 'success' && (
-                      <span className="flex items-center gap-1 text-xs text-green-600 font-medium"><CheckCircle size={12} /> Active</span>
-                    )}
-                    {calendarStatus === 'error' && (
-                      <span className="flex items-center gap-1 text-xs text-red-600 font-medium"><XCircle size={12} /> Failed</span>
-                    )}
+                    <div className="flex items-center justify-between bg-white p-3 rounded border border-gray-200">
+                      <div className="flex items-center gap-2">
+                        <Mail size={16} className="text-brand-600" />
+                        <span className="text-sm text-gray-700">Gmail Access</span>
+                      </div>
+                      {gmailStatus === 'idle' && (
+                        <button onClick={verifyGmail} className="text-xs bg-brand-50 text-brand-700 px-2 py-1 rounded border border-brand-200 hover:bg-brand-100">
+                          Verify
+                        </button>
+                      )}
+                      {gmailStatus === 'checking' && (
+                        <span className="flex items-center gap-1 text-xs text-gray-500"><Loader2 size={12} className="animate-spin" /> Checking...</span>
+                      )}
+                      {gmailStatus === 'success' && (
+                        <span className="flex items-center gap-1 text-xs text-green-600 font-medium"><CheckCircle size={12} /> Active</span>
+                      )}
+                      {gmailStatus === 'error' && (
+                        <span className="flex items-center gap-1 text-xs text-red-600 font-medium"><XCircle size={12} /> Failed</span>
+                      )}
+                    </div>
                   </div>
                </div>
              </div>
